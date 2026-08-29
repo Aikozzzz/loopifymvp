@@ -1,10 +1,10 @@
-# ShareLoop
+# Loopify
 
 > Working name for a donation-first community platform that helps people give usable items to people who need them and organize local social-impact events.
 
 ## 1. Project Overview
 
-ShareLoop reduces waste by making local donation simple. A donor creates a post for an item they no longer need, another user requests it, and the donor chooses a recipient and arranges collection. The platform also supports community events such as cleanup campaigns, food-donation drives, clothing drives, and recycling activities.
+Loopify reduces waste by making local donation simple. A donor creates a post for an item they no longer need, another user requests it, and the donor chooses a recipient and arranges collection. The platform also supports community events such as cleanup campaigns, food-donation drives, clothing drives, and recycling activities.
 
 The first release is intentionally small. Donation is the main experience; item exchange is a later, optional feature.
 
@@ -49,7 +49,7 @@ If these actions work reliably on the deployed Netlify site, the MVP is successf
 - Delivery or courier integration
 - Maps and live location tracking
 - Item exchange
-- AI recommendations or image recognition
+- AI recommendations, automated moderation, or image recognition beyond the optional listing assistant
 - Ratings and badges
 - Push notifications
 - Organization/admin dashboard
@@ -166,7 +166,7 @@ No separate role-selection screen is required.
 ## 10. Suggested Project Structure
 
 ```text
-shareloop/
+loopify/
 ├── public/
 ├── src/
 │   ├── components/
@@ -208,7 +208,8 @@ shareloop/
 │   └── main.tsx
 ├── supabase/
 │   └── migrations/
-│       └── 001_initial_schema.sql
+│       ├── 001_initial_schema.sql
+│       └── 002_fix_participation_validation_rls.sql
 ├── .env.example
 ├── .gitignore
 ├── netlify.toml
@@ -224,11 +225,8 @@ Organize code by feature instead of placing all database calls in page component
 ### Prerequisites
 
 - Node.js 22 or another currently supported LTS release
-- npm
-- Git
-- GitHub account
-- Supabase account
-- Netlify account
+- npm and Git
+- A Supabase project for real data
 
 Check the local tools:
 
@@ -238,74 +236,31 @@ npm --version
 git --version
 ```
 
-### Create the React application
-
-Run these commands in the directory where the project should be created:
+Clone the existing Loopify repository and install the locked dependency set:
 
 ```bash
-npm create vite@latest shareloop -- --template react-ts
-cd shareloop
-npm install
+git clone https://github.com/Aikozzzz/loopifymvp.git
+cd loopifymvp
+npm ci
 ```
 
-Install the MVP dependencies:
+Create a local environment file from the checked-in example. In PowerShell use
+`Copy-Item .env.example .env.local`; in macOS/Linux use `cp .env.example .env.local`.
+Set the real Supabase project URL and browser-safe publishable key in `.env.local`.
+
+```dotenv
+VITE_SUPABASE_URL=https://your-project-ref.supabase.co
+VITE_SUPABASE_PUBLISHABLE_KEY=sb_publishable_replace_me
+```
+
+Start the app:
 
 ```bash
-npm install @supabase/supabase-js react-router-dom @tanstack/react-query
-npm install react-hook-form zod @hookform/resolvers
-npm install lucide-react sonner date-fns clsx tailwind-merge
-npm install -D tailwindcss @tailwindcss/vite
+npm run dev
 ```
 
-### Configure Tailwind CSS
-
-Update `vite.config.ts`:
-
-```ts
-import { defineConfig } from 'vite'
-import react from '@vitejs/plugin-react'
-import tailwindcss from '@tailwindcss/vite'
-
-export default defineConfig({
-  plugins: [react(), tailwindcss()],
-})
-```
-
-Replace the contents of `src/index.css` with:
-
-```css
-@import "tailwindcss";
-
-:root {
-  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
-  color: #17211b;
-  background: #f7faf8;
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-}
-
-body {
-  margin: 0;
-  min-width: 320px;
-  min-height: 100vh;
-}
-
-button,
-a,
-input,
-select,
-textarea {
-  -webkit-tap-highlight-color: transparent;
-}
-```
-
-### Initialize Git
-
-```bash
-git init
-git add .
-git commit -m "chore: initialize ShareLoop MVP"
-```
+The application is served at `http://localhost:5173`. Do not put a Supabase
+secret or service-role key in a `VITE_` variable.
 
 ## 12. Supabase Setup
 
@@ -343,9 +298,13 @@ Add local environment files to `.gitignore`:
 
 Do not commit `.env.local`.
 
-### Create the Supabase client
+### Client configuration
 
-Create `src/lib/supabase.ts`:
+The client is already implemented in `src/lib/env.ts` and
+`src/lib/supabase.ts`. The environment module validates the URL and rejects
+service-role keys before the typed client is created. Do not add another
+Supabase client or expose a secret key in browser code. The following excerpt
+shows the underlying client shape for reference:
 
 ```ts
 import { createClient } from '@supabase/supabase-js'
@@ -360,9 +319,35 @@ if (!supabaseUrl || !supabasePublishableKey) {
 export const supabase = createClient(supabaseUrl, supabasePublishableKey)
 ```
 
-## 13. Initial Database Migration
+## 13. Database Migrations
 
-Create `supabase/migrations/001_initial_schema.sql` and place the following SQL inside it. Run it once in **Supabase Dashboard → SQL Editor**.
+The canonical schema is already checked in at
+`supabase/migrations/001_initial_schema.sql`. Apply that complete file to a
+new Supabase project. The follow-up
+`supabase/migrations/002_fix_participation_validation_rls.sql` fixes row-level
+security validation for donation requests and event participation.
+
+Using the Supabase CLI is the repeatable path:
+
+```bash
+npx supabase login
+npx supabase link --project-ref YOUR_PROJECT_REF
+npx supabase db push
+npx supabase gen types typescript --linked --schema public > src/types/database.ts
+```
+
+The first command opens the Supabase login flow. `db push` applies all pending
+migrations, including the RLS trigger fix. Regenerate `src/types/database.ts`
+after every schema change and review the generated diff before committing it.
+
+If the CLI is unavailable, paste the entire contents of
+`supabase/migrations/001_initial_schema.sql` into **Supabase Dashboard → SQL
+Editor** and run it once for a new project. If the initial migration is
+already applied, run only
+`supabase/migrations/002_fix_participation_validation_rls.sql`. The migration
+files in the repository are the source of truth; the following SQL is retained
+only as a schema reference and should not be run as a separate partial
+migration.
 
 ```sql
 create type public.item_category as enum (
@@ -763,17 +748,19 @@ The migration is a starting point, not a substitute for security testing. Test e
 
 ### Generate TypeScript database types
 
-After the schema exists, generate database types:
+The migration setup command already generates the checked-in types. To
+regenerate them later:
 
 ```bash
-npx supabase gen types typescript --project-id YOUR_PROJECT_REF > src/types/database.ts
+npx supabase gen types typescript --linked --schema public > src/types/database.ts
 ```
 
 Regenerate this file whenever the database schema changes.
 
 ## 14. Supabase Storage Setup
 
-Create a bucket from **Supabase Dashboard → Storage**:
+The canonical migration creates the `item-images` bucket and its RLS policies.
+Verify these settings in **Supabase Dashboard → Storage**:
 
 - Bucket name: `item-images`
 - Public bucket: enabled
@@ -782,7 +769,9 @@ Create a bucket from **Supabase Dashboard → Storage**:
 
 Use compressed WebP or JPEG images in the UI. Validate type and size before upload.
 
-Run these storage policies in the SQL Editor:
+Do not rerun the policy reference below after applying the repository
+migration; duplicate policy names will fail. It is included to document the
+intended ownership boundary for older projects that were provisioned manually:
 
 ```sql
 create policy "Donation images are publicly readable"
@@ -857,6 +846,20 @@ const { data, error } = await supabase.auth.signUp({
   },
 })
 ```
+
+### SMTP and signup limits
+
+Supabase’s built-in email provider is intended for testing and has a small
+project-wide send limit. Repeated signup confirmation requests can return
+HTTP 429 responses even when the browser and redirect URL are configured
+correctly. Loopify now shows a clear rate-limit message and pauses the signup
+button for 60 seconds to prevent immediate retry bursts.
+
+Before a production deployment, configure a custom SMTP provider in the
+Supabase Auth settings, verify the sender domain, and keep email confirmation
+enabled. Do not try to solve the provider quota with a browser API key or by
+retrying signup automatically. For local-only testing, email confirmation may
+be disabled temporarily, but it should not be disabled for a public launch.
 
 Protect write routes in the React router, but do not treat route protection as database security. Row Level Security remains the actual authorization layer.
 
@@ -982,7 +985,8 @@ Validate forms in both the UI and the database.
 
 ## 20. Netlify Configuration
 
-Create `netlify.toml` in the repository root:
+The checked-in `netlify.toml` builds `dist`, rewrites every client-side route
+to `index.html`, and sends baseline security headers:
 
 ```toml
 [build]
@@ -993,19 +997,34 @@ Create `netlify.toml` in the repository root:
   from = "/*"
   to = "/index.html"
   status = 200
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Permissions-Policy = "camera=(), geolocation=(), microphone=()"
 ```
 
-The rewrite is required so refreshing a React Router URL such as `/events/123` serves `index.html` instead of returning a Netlify 404.
+The rewrite is required so refreshing a React Router URL such as `/events/123`
+serves `index.html` instead of returning a Netlify 404. The CSP in the actual
+file allows the app, Supabase API/realtime, Supabase-hosted images, and the
+Google-hosted Figtree/DM Mono styles used by the design.
 
 Test the production build locally before every deployment:
 
 ```bash
 npm run lint
+npm run type-check
+npm test
 npm run build
 npm run preview
 ```
 
-Open the preview URL and test direct navigation to multiple routes.
+Open the preview URL and test direct navigation to `/`, `/feed`, `/events`,
+and a nested detail URL. Environment variables belong in Netlify’s UI or CLI,
+not in `netlify.toml`.
 
 ## 21. Deploy to Netlify
 
@@ -1013,9 +1032,9 @@ Open the preview URL and test direct navigation to multiple routes.
 
 ```bash
 git add .
-git commit -m "feat: complete ShareLoop MVP"
+git commit -m "feat: complete Loopify MVP"
 git branch -M main
-git remote add origin https://github.com/YOUR_USERNAME/shareloop.git
+git remote add origin https://github.com/YOUR_USERNAME/loopify.git
 git push -u origin main
 ```
 
@@ -1025,7 +1044,7 @@ If `origin` already exists, do not add it again.
 
 1. Open Netlify.
 2. Select **Add new project → Import an existing project**.
-3. Connect GitHub and choose the ShareLoop repository.
+3. Connect GitHub and choose the Loopify repository.
 4. Confirm the build command is `npm run build`.
 5. Confirm the publish directory is `dist`.
 6. Add the environment variables:
@@ -1060,6 +1079,66 @@ After the first Netlify deployment:
 - Confirm no secret/service-role key appears in the deployed JavaScript or repository.
 
 ## 22. Testing Checklist
+
+### Automated commands
+
+```bash
+npm run lint
+npm run type-check
+npm test
+npm run build
+```
+
+The unit suite runs in jsdom with Vitest and Testing Library. It covers the
+donation, request, event, auth, and profile validation boundaries; donation
+filters and service query construction; status badges; request privacy
+rendering; event participation controls; and protected-route permissions.
+
+Install the local Playwright browser once, then run public smoke tests:
+
+```bash
+npx playwright install chromium
+npm run test:e2e
+```
+
+The smoke suite uses an isolated fake Supabase REST response, so it can verify
+landing/feed/events rendering, filter URL state, direct-route refreshes,
+mobile width, and form-control labels without credentials. The credentialed
+two-user donation and event lifecycle is skipped unless all of these variables
+are set:
+
+```powershell
+$env:E2E_DONOR_EMAIL = "donor@example.com"
+$env:E2E_DONOR_PASSWORD = "replace-me"
+$env:E2E_RECIPIENT_EMAIL = "recipient@example.com"
+$env:E2E_RECIPIENT_PASSWORD = "replace-me"
+npm run test:e2e
+```
+
+Those accounts must exist in the real Supabase project configured by
+`VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY`. The lifecycle creates
+real test data, uploads an image, and should be run against a disposable
+project or with a cleanup plan.
+
+### Real-project RLS authorization matrix
+
+The automated browser smoke suite cannot prove PostgreSQL authorization. Run
+these checks with an anonymous browser session and two separate Supabase
+accounts after applying the migration:
+
+- **Anonymous:** can read non-withdrawn donations, non-cancelled events,
+  public profiles, and participant counts; cannot create or update donations,
+  requests, events, participation, or reports.
+- **Owner:** can create and edit their own available donation, withdraw it
+  through the RPC, and manage only their own event; cannot edit another
+  owner’s records or accept requests for another owner’s donation.
+- **Requester:** can create one request for another user’s available donation,
+  read their own request, cancel a pending request, and join or leave an
+  upcoming event; cannot read unrelated private requests or change donation
+  status.
+- **Unrelated user:** cannot edit or delete another user’s donation or event,
+  cannot accept, decline, or complete another donor’s workflow, and cannot
+  access private pickup notes that belong to a different request.
 
 ### Authentication
 
@@ -1099,7 +1178,10 @@ After the first Netlify deployment:
 ### Deployment
 
 - [ ] `npm run lint` passes
+- [ ] `npm run type-check` passes
+- [ ] `npm test` passes
 - [ ] `npm run build` passes
+- [ ] `npm run test:e2e` public smoke tests pass
 - [ ] Environment variables exist in Netlify
 - [ ] Direct route refresh works
 - [ ] Production authentication redirects work
@@ -1160,7 +1242,57 @@ The MVP is complete only when:
 - Row Level Security has been tested with anonymous users and at least two authenticated accounts.
 - The production smoke test passes on the Netlify URL.
 
-## 25. Post-MVP Roadmap
+## 25. AI Donation Listing Assistant
+
+Loopify includes an optional, donor-triggered assistant that drafts listing details from a selected donation image. It does not publish automatically, set an item condition, create prices, or guarantee that a suggestion is correct.
+
+### Usage
+
+1. Select or upload an image in the donation form.
+2. Choose **Suggest Details with AI**.
+3. Review and edit the title, description, and category.
+4. Choose the item condition yourself.
+5. For sealed food, provide a future expiration date and pickup deadline before publishing.
+
+The assistant displays an explicit disclosure and presents safety flags as possible warnings only. The returned text is rendered as plain text, never as HTML.
+
+### Netlify Function configuration
+
+The frontend calls `POST /.netlify/functions/analyze-donation` with the current Supabase access token:
+
+```http
+Authorization: Bearer <supabase-access-token>
+Content-Type: application/json
+```
+
+```json
+{
+  "imageUrl": "https://your-project-ref.supabase.co/storage/v1/object/public/item-images/<user-id>/<file-name>"
+}
+```
+
+The function returns `{ "suggestion": { ... } }` on success. Errors always use `{ "error": { "code": "...", "message": "..." } }`.
+
+Configure these variables in Netlify’s site environment settings. They are server-side function variables and must not use the `VITE_` prefix:
+
+```dotenv
+OPENAI_API_KEY=replace_with_server_secret
+OPENAI_MODEL=gpt-4o-mini
+SUPABASE_URL=https://your-project-ref.supabase.co
+SUPABASE_PUBLISHABLE_KEY=sb_publishable_replace_me
+```
+
+Keep only `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` in the browser environment. Never set `VITE_OPENAI_API_KEY`, a Supabase service-role key, or any other secret in frontend code or `.env.local` values that are shipped to Netlify’s client build.
+
+For local function testing, use the Netlify CLI with the variables loaded from a local, uncommitted environment file:
+
+```bash
+npx netlify dev
+```
+
+The function rejects non-POST requests, oversized bodies, malformed URLs, external image hosts, and images outside the authenticated user’s `item-images/<user-id>/` folder. It authenticates the bearer token with Supabase, validates the structured AI response with Zod, avoids logging credentials, and returns a controlled unavailable response when `OPENAI_API_KEY` or `OPENAI_MODEL` is not configured. AI calls must be mocked in tests; no paid request belongs in the test suite.
+
+## 26. Post-MVP Roadmap
 
 Add features only after the donation MVP is stable.
 
@@ -1176,14 +1308,14 @@ Add features only after the donation MVP is stable.
 
 ### Phase 3
 
-- AI-assisted category and description suggestions
+- More advanced AI-assisted safety and matching workflows
 - Image safety and prohibited-item screening
 - Need-and-location-based donation matching
 - Impact analytics for communities and organizations
 - Verified NGO and community-organization accounts
 - Optional Netlify Functions for trusted moderation and notification tasks
 
-## 26. Safety and Privacy Notes
+## 27. Safety and Privacy Notes
 
 - Never show a home address in a public listing.
 - Encourage pickup in a safe public location when possible.
@@ -1193,7 +1325,7 @@ Add features only after the donation MVP is stable.
 - Publish clear prohibited-item, food-safety, privacy, and community rules.
 - Do not claim that the platform independently guarantees item quality or user identity.
 
-## 27. Useful Official Documentation
+## 28. Useful Official Documentation
 
 - [Vite on Netlify](https://docs.netlify.com/build/frameworks/framework-setup-guides/vite/)
 - [Netlify JavaScript SPA configuration](https://docs.netlify.com/build/configure-builds/javascript-spas/)
@@ -1206,7 +1338,7 @@ Add features only after the donation MVP is stable.
 - [Supabase API keys](https://supabase.com/docs/guides/getting-started/api-keys)
 - [Supabase Storage access control](https://supabase.com/docs/guides/storage/security/access-control)
 
-## 28. License
+## 29. License
 
 Choose and add a license before accepting outside contributions. MIT is a common choice for a student or hackathon open-source project.
 
