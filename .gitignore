@@ -1,5 +1,6 @@
 node_modules
 dist
+.netlify
 test-results
 playwright-report
 .env
@@ -13,3 +14,6 @@ Thumbs.db
 .vscode/*
 !.vscode/extensions.json
 !.vscode/settings.json
+
+# Local Netlify folder
+.netlify

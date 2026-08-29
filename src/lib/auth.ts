@@ -11,13 +11,16 @@ export class AuthRequiredError extends Error {
 }
 
 export async function getCurrentUser(): Promise<User | null> {
-  const { data, error } = await supabase.auth.getUser()
+  const {
+    data: { session },
+    error,
+  } = await supabase.auth.getSession()
 
   if (error) {
     return null
   }
 
-  return data.user
+  return session?.user ?? null
 }
 
 export async function requireCurrentUser(): Promise<User> {
