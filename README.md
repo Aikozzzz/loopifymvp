@@ -209,7 +209,8 @@ loopify/
 ├── supabase/
 │   └── migrations/
 │       ├── 001_initial_schema.sql
-│       └── 002_fix_participation_validation_rls.sql
+│       ├── 002_fix_participation_validation_rls.sql
+│       └── 20260830155042_harden_security_advisor_findings.sql
 ├── .env.example
 ├── .gitignore
 ├── netlify.toml
@@ -325,7 +326,10 @@ The canonical schema is already checked in at
 `supabase/migrations/001_initial_schema.sql`. Apply that complete file to a
 new Supabase project. The follow-up
 `supabase/migrations/002_fix_participation_validation_rls.sql` fixes row-level
-security validation for donation requests and event participation.
+security validation for donation requests and event participation. The latest
+`20260830155042_harden_security_advisor_findings.sql` pins function search
+paths, removes anonymous access to lifecycle RPCs, and prevents broad listing
+of public item-image objects.
 
 Using the Supabase CLI is the repeatable path:
 
@@ -337,17 +341,17 @@ npx supabase gen types typescript --linked --schema public > src/types/database.
 ```
 
 The first command opens the Supabase login flow. `db push` applies all pending
-migrations, including the RLS trigger fix. Regenerate `src/types/database.ts`
+migrations, including both security fixes. Regenerate `src/types/database.ts`
 after every schema change and review the generated diff before committing it.
 
 If the CLI is unavailable, paste the entire contents of
 `supabase/migrations/001_initial_schema.sql` into **Supabase Dashboard → SQL
 Editor** and run it once for a new project. If the initial migration is
-already applied, run only
-`supabase/migrations/002_fix_participation_validation_rls.sql`. The migration
-files in the repository are the source of truth; the following SQL is retained
-only as a schema reference and should not be run as a separate partial
-migration.
+already applied, run the pending migration files in order:
+`002_fix_participation_validation_rls.sql` and then
+`20260830155042_harden_security_advisor_findings.sql`. The migration files in
+the repository are the source of truth; the following SQL is retained only as
+a schema reference and should not be run as a separate partial migration.
 
 ```sql
 create type public.item_category as enum (
@@ -767,17 +771,17 @@ Verify these settings in **Supabase Dashboard → Storage**:
 - Maximum file size: 5 MB
 - Allowed MIME types: `image/jpeg`, `image/png`, `image/webp`
 
-Use compressed WebP or JPEG images in the UI. Validate type and size before upload.
+The bucket is public so direct object URLs can serve donation images. Public
+downloads do not require a broad `SELECT` policy on `storage.objects`; leaving
+one in place would also allow clients to list every object in the bucket.
+Use compressed WebP or JPEG images in the UI. Validate type and size before
+upload.
 
 Do not rerun the policy reference below after applying the repository
 migration; duplicate policy names will fail. It is included to document the
 intended ownership boundary for older projects that were provisioned manually:
 
 ```sql
-create policy "Donation images are publicly readable"
-on storage.objects for select
-using (bucket_id = 'item-images');
-
 create policy "Users upload images to their own folder"
 on storage.objects for insert
 to authenticated
@@ -860,6 +864,12 @@ Supabase Auth settings, verify the sender domain, and keep email confirmation
 enabled. Do not try to solve the provider quota with a browser API key or by
 retrying signup automatically. For local-only testing, email confirmation may
 be disabled temporarily, but it should not be disabled for a public launch.
+
+In **Supabase Dashboard → Authentication → Password Security**, enable
+**Prevent the use of leaked passwords**. This Auth setting is managed in the
+dashboard rather than through the SQL migrations and should be enabled before
+production launch. Supabase makes this control available on the Pro plan and
+above.
 
 Protect write routes in the React router, but do not treat route protection as database security. Row Level Security remains the actual authorization layer.
 
